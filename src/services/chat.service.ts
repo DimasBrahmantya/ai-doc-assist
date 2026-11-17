@@ -5,7 +5,7 @@ import { AppError } from '@/lib/errors/app-error';
 import type { TokenUsage } from '@/lib/gemini/generate';
 import { runRagPipeline } from '@/lib/rag/pipeline';
 import type { ChatHistoryTurn, ValidatedSource } from '@/lib/rag/types';
-import { enforceRateLimit } from '@/lib/rate-limit';
+import { enforceRateLimitAsync } from '@/lib/rate-limit';
 import type { MessageRow } from '@/lib/supabase/types';
 import { conversationsRepository } from '@/repositories/conversations.repository';
 import { documentsRepository } from '@/repositories/documents.repository';
@@ -32,7 +32,7 @@ export const chatService = {
     const env = getServerEnv();
     console.info('[chat] 1. start');
 
-    enforceRateLimit(
+    await enforceRateLimitAsync(
       {
         namespace: 'chat',
         key: userId,
@@ -51,11 +51,18 @@ export const chatService = {
       throw new AppError('NOT_FOUND', 'Conversation not found', 404);
     }
 
-    const document = await documentsRepository.findByIdForUser(
-      supabase,
-      conversation.document_id,
-      userId,
-    );
+    const [document, existingMessages] = await Promise.all([
+      documentsRepository.findByIdForUser(
+        supabase,
+        conversation.document_id,
+        userId,
+      ),
+      messagesRepository.listByConversationForUser(
+        supabase,
+        conversation.id,
+        userId,
+      ),
+    ]);
     if (!document) {
       throw new AppError('NOT_FOUND', 'Document not found', 404);
     }
@@ -67,12 +74,6 @@ export const chatService = {
         409,
       );
     }
-
-    const existingMessages = await messagesRepository.listByConversationForUser(
-      supabase,
-      conversation.id,
-      userId,
-    );
 
     const history: ChatHistoryTurn[] = existingMessages
       .slice(-MAX_HISTORY_TURNS)

@@ -1,0 +1,16 @@
+{
+  "description": "Sample per-request RAG telemetry for cost & latency evaluation.",
+  "pricingPerMillionTokensUsd": {
+    "sourceNote": "Verified Paid Tier rates from https://ai.google.dev/gemini-api/docs/pricing (gemini-3.5-flash-lite + gemini-embedding-001).",
+    "chatInput": 0.30,
+    "chatOutput": 2.50,
+    "embeddingInput": 0.15
+  },
+  "requests": [
+    { "id": "req-01", "inputTokens": 1850, "outputTokens": 120, "embeddingCalls": 1, "embeddingTokens": 18, "embedMs": 140, "searchMs": 32, "generateMs": 620, "totalMs": 810 },
+    { "id": "req-02", "inputTokens": 2400, "outputTokens": 180, "embeddingCalls": 1, "embeddingTokens": 24, "embedMs": 155, "searchMs": 28, "generateMs": 790, "totalMs": 990 },
+    { "id": "req-03", "inputTokens": 1200, "outputTokens": 85, "embeddingCalls": 1, "embeddingTokens": 15, "embedMs": 130, "searchMs": 25, "generateMs": 480, "totalMs": 650 },
+    { "id": "req-04", "inputTokens": 3100, "outputTokens": 210, "embeddingCalls": 1, "embeddingTokens": 30, "embedMs": 170, "searchMs": 41, "generateMs": 940, "totalMs": 1180 },
+    { "id": "req-05", "inputTokens": 900, "outputTokens": 0, "embeddingCalls": 1, "embeddingTokens": 12, "embedMs": 125, "searchMs": 22, "generateMs": 0, "totalMs": 155 }
+  ]
+}

@@ -8,6 +8,7 @@ import { cleanText } from '@/lib/pdf/clean';
 import { extractPdfPages, verifyPdfReadable } from '@/lib/pdf/extract';
 import { validatePdfUpload } from '@/lib/pdf/validate';
 import { chunkPages } from '@/lib/rag/chunk';
+import { enforceRateLimitAsync } from '@/lib/rate-limit';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { DocumentRow } from '@/lib/supabase/types';
 import { chunksRepository } from '@/repositories/chunks.repository';
@@ -15,6 +16,7 @@ import { conversationsRepository } from '@/repositories/conversations.repository
 import { documentsRepository } from '@/repositories/documents.repository';
 
 const CHUNK_INSERT_BATCH_SIZE = 100;
+const UPLOAD_RATE_WINDOW_MS = 60 * 60 * 1000;
 
 export interface UploadDocumentInput {
   fileName: string;
@@ -62,6 +64,16 @@ export const documentsService = {
     input: UploadDocumentInput,
   ): Promise<DocumentRow> {
     const env = getServerEnv();
+
+    await enforceRateLimitAsync(
+      {
+        namespace: 'upload',
+        key: userId,
+        limit: env.RATE_LIMIT_UPLOAD_PER_HOUR,
+        windowMs: UPLOAD_RATE_WINDOW_MS,
+      },
+      'Upload rate limit exceeded. Please wait before uploading another PDF.',
+    );
 
     const meta = validatePdfUpload(
       {

@@ -18,12 +18,18 @@ interface IconRailProps {
   conversationCount: number;
   activeConversationId?: string;
   userInitials?: string;
+  onOpenHelp?: () => void;
+  onOpenSettings?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export function IconRail({
   conversationCount,
   activeConversationId,
   userInitials = 'U',
+  onOpenHelp,
+  onOpenSettings,
+  onOpenProfile,
 }: IconRailProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -108,6 +114,7 @@ export function IconRail({
         <div className="flex flex-col items-center gap-3">
           <button
             type="button"
+            onClick={onOpenHelp}
             title="Help"
             aria-label="Help"
             className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-white/70 hover:bg-white/10 hover:text-white cursor-pointer"
@@ -116,18 +123,22 @@ export function IconRail({
           </button>
           <button
             type="button"
+            onClick={onOpenSettings}
             title="Settings"
             aria-label="Settings"
             className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-white/70 hover:bg-white/10 hover:text-white cursor-pointer"
           >
             <Settings className="h-5 w-5" />
           </button>
-          <div
+          <button
+            type="button"
+            onClick={onOpenProfile}
             title="Profile"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-xs font-semibold text-white"
+            aria-label="Profile"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-xs font-semibold text-white transition-colors hover:bg-white/25 cursor-pointer"
           >
             {userInitials}
-          </div>
+          </button>
           <button
             type="button"
             onClick={handleLogout}

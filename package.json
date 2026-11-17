@@ -9,7 +9,10 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval:retrieval": "node scripts/eval/retrieval.mjs",
+    "eval:answers": "node scripts/eval/answers.mjs",
+    "eval:cost": "node scripts/eval/cost.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.4.0",

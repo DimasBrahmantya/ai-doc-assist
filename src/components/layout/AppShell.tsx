@@ -15,6 +15,18 @@ import type { ConversationItemData, DocumentItem } from '@/types';
 import { AppHeader } from './AppHeader';
 import { ConversationSidebar } from './ConversationSidebar';
 import { IconRail } from './IconRail';
+import {
+  RailModals,
+  type ActiveRailModal,
+  type UserProfileInfo,
+} from './RailModals';
+
+const SIDEBAR_CACHE_TTL_MS = 15_000;
+let sidebarCache: {
+  conversations: ConversationItemData[];
+  readyDocuments: DocumentItem[];
+  fetchedAt: number;
+} | null = null;
 
 interface AppShellProps {
   activeConversationId?: string;
@@ -29,15 +41,31 @@ export function AppShell({
 }: AppShellProps) {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
-  const [conversations, setConversations] = React.useState<ConversationItemData[]>([]);
-  const [readyDocuments, setReadyDocuments] = React.useState<DocumentItem[]>([]);
+  const [conversations, setConversations] = React.useState<ConversationItemData[]>(
+    () => sidebarCache?.conversations ?? [],
+  );
+  const [readyDocuments, setReadyDocuments] = React.useState<DocumentItem[]>(
+    () => sidebarCache?.readyDocuments ?? [],
+  );
   const [userInitials, setUserInitials] = React.useState('U');
+  const [userProfile, setUserProfile] = React.useState<UserProfileInfo | null>(null);
+  const [activeRailModal, setActiveRailModal] = React.useState<ActiveRailModal>(null);
   const [newChatModalOpen, setNewChatModalOpen] = React.useState(false);
   const [selectedDocId, setSelectedDocId] = React.useState<string>('');
   const [isCreatingChat, setIsCreatingChat] = React.useState(false);
   const [modalError, setModalError] = React.useState<string | null>(null);
 
-  const loadSidebarData = React.useCallback(async () => {
+  const loadSidebarData = React.useCallback(async (force = false) => {
+    if (
+      !force &&
+      sidebarCache &&
+      Date.now() - sidebarCache.fetchedAt < SIDEBAR_CACHE_TTL_MS
+    ) {
+      setConversations(sidebarCache.conversations);
+      setReadyDocuments(sidebarCache.readyDocuments);
+      return;
+    }
+
     try {
       const [convRes, docRes] = await Promise.all([
         fetch('/api/conversations', { cache: 'no-store' }),
@@ -65,18 +93,24 @@ export function AppShell({
         (row) => mapConversationRow(row, docsById),
       );
       setConversations(mappedConvs);
+      sidebarCache = {
+        conversations: mappedConvs,
+        readyDocuments: ready,
+        fetchedAt: Date.now(),
+      };
     } catch {
       // Sidebar refresh failures are non-fatal; user can retry via navigation
     }
   }, []);
 
   React.useEffect(() => {
-    void loadSidebarData();
+    void loadSidebarData(false);
   }, [loadSidebarData, activeConversationId]);
 
   React.useEffect(() => {
     const handleRefresh = () => {
-      void loadSidebarData();
+      sidebarCache = null;
+      void loadSidebarData(true);
     };
     window.addEventListener('conversations:refresh', handleRefresh);
     return () => window.removeEventListener('conversations:refresh', handleRefresh);
@@ -84,17 +118,32 @@ export function AppShell({
 
   React.useEffect(() => {
     const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then((res: { data: { user: { email?: string; user_metadata?: Record<string, unknown> } | null } }) => {
-      const user = res.data.user;
+    supabase.auth.getSession().then((res: { data: { session: { user?: { id?: string; email?: string; user_metadata?: Record<string, unknown> } } | null } }) => {
+      const user = res.data.session?.user;
       if (user) {
         const fullName =
           typeof user.user_metadata?.full_name === 'string'
             ? user.user_metadata.full_name
             : null;
-        setUserInitials(getUserInitials(user.email, fullName));
+        const initials = getUserInitials(user.email, fullName);
+        setUserInitials(initials);
+        setUserProfile({
+          id: user.id ?? '',
+          email: user.email ?? '',
+          fullName,
+          initials,
+        });
       }
     });
   }, []);
+
+  const handleLogout = async () => {
+    const supabase = createBrowserSupabaseClient();
+    await supabase.auth.signOut();
+    setActiveRailModal(null);
+    router.push('/login');
+    router.refresh();
+  };
 
   const createAndNavigate = async (documentId: string) => {
     setIsCreatingChat(true);
@@ -182,6 +231,9 @@ export function AppShell({
         conversationCount={conversations.length}
         activeConversationId={activeConversationId ?? conversations[0]?.id}
         userInitials={userInitials}
+        onOpenHelp={() => setActiveRailModal('help')}
+        onOpenSettings={() => setActiveRailModal('settings')}
+        onOpenProfile={() => setActiveRailModal('profile')}
       />
 
       <ConversationSidebar
@@ -202,7 +254,7 @@ export function AppShell({
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {children}
         </main>
-      </div>
+        </div>
 
       {newChatModalOpen && (
         <div
@@ -224,7 +276,7 @@ export function AppShell({
               >
                 <X className="h-4 w-4" />
               </button>
-            </div>
+              </div>
 
             {readyDocuments.length === 0 ? (
               <div className="mt-4 space-y-4">
@@ -250,8 +302,8 @@ export function AppShell({
                   >
                     Go to Documents
                   </Button>
+                  </div>
                 </div>
-              </div>
             ) : (
               <div className="mt-4 space-y-4">
                 <p className="text-xs text-muted">
@@ -277,7 +329,7 @@ export function AppShell({
                       </span>
                     </label>
                   ))}
-                </div>
+                  </div>
 
                 {modalError && (
                   <p className="text-xs text-red-600">{modalError}</p>
@@ -300,12 +352,25 @@ export function AppShell({
                   >
                     {isCreatingChat ? 'Starting...' : 'Start Chat'}
                   </Button>
+                  </div>
                 </div>
-              </div>
             )}
+            </div>
           </div>
-        </div>
       )}
+
+      <RailModals
+        activeModal={activeRailModal}
+        onClose={() => setActiveRailModal(null)}
+        user={userProfile}
+        documentCount={readyDocuments.length}
+        conversationCount={conversations.length}
+        onRefreshCache={() => {
+          sidebarCache = null;
+          void loadSidebarData(true);
+        }}
+        onLogout={() => void handleLogout()}
+      />
     </div>
   );
 }
