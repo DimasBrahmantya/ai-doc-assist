@@ -14,3 +14,12 @@ export const createMessageSchema = z.object({
   content: z.string().trim().min(1, 'Message content cannot be empty').max(20000),
   sources: z.array(messageSourceSchema).optional(),
 });
+
+export const chatRequestSchema = z.object({
+  conversationId: uuidSchema,
+  message: z
+    .string()
+    .trim()
+    .min(1, 'Message cannot be empty')
+    .max(4000, 'Message cannot exceed 4000 characters'),
+});
