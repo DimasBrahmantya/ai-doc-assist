@@ -1,33 +1,25 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { UploadDropzone } from '@/components/documents/UploadDropzone';
 import { DocumentList } from '@/components/documents/DocumentList';
 import { AppShell } from '@/components/layout/AppShell';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
+import { mapDocumentRow } from '@/lib/mappers';
 import type { DocumentRow } from '@/lib/supabase/types';
 import type { DocumentItem } from '@/types';
 
 const POLL_INTERVAL_MS = 2500;
 
-function mapRowToItem(row: DocumentRow): DocumentItem {
-  return {
-    id: row.id,
-    fileName: row.file_name,
-    fileSizeBytes: row.file_size,
-    totalPages: row.total_pages,
-    status: row.status,
-    createdAt: row.created_at,
-    errorMessage: row.error_message ?? undefined,
-  };
-}
-
 export default function DocumentsPage() {
+  const router = useRouter();
   const [documents, setDocuments] = React.useState<DocumentItem[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [startingChatDocId, setStartingChatDocId] = React.useState<string | null>(null);
 
   const fetchDocuments = React.useCallback(async () => {
     try {
@@ -37,7 +29,7 @@ export default function DocumentsPage() {
         throw new Error(data?.error?.message ?? 'Failed to load documents');
       }
       const rows = (data.documents ?? []) as DocumentRow[];
-      setDocuments(rows.map(mapRowToItem));
+      setDocuments(rows.map(mapDocumentRow));
       setLoadError(null);
     } catch (err) {
       setLoadError(
@@ -83,10 +75,11 @@ export default function DocumentsPage() {
           throw new Error(data?.error?.message ?? 'Failed to process document');
         }
         if (data.document) {
-          const updated = mapRowToItem(data.document as DocumentRow);
+          const updated = mapDocumentRow(data.document as DocumentRow);
           setDocuments((prev) =>
             prev.map((d) => (d.id === docId ? updated : d)),
           );
+          window.dispatchEvent(new Event('conversations:refresh'));
         } else {
           await fetchDocuments();
         }
@@ -116,7 +109,7 @@ export default function DocumentsPage() {
         if (!res.ok) {
           throw new Error(data?.error?.message ?? `Failed to upload ${file.name}`);
         }
-        const created = mapRowToItem(data.document as DocumentRow);
+        const created = mapDocumentRow(data.document as DocumentRow);
         setDocuments((prev) => [created, ...prev]);
         void triggerProcess(created.id);
       } catch (err) {
@@ -143,10 +136,34 @@ export default function DocumentsPage() {
         throw new Error(data?.error?.message ?? 'Failed to delete document');
       }
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
+      window.dispatchEvent(new Event('conversations:refresh'));
     } catch (err) {
       setActionError(
         err instanceof Error ? err.message : 'Failed to delete document',
       );
+    }
+  };
+
+  const handleStartChat = async (docId: string) => {
+    setActionError(null);
+    setStartingChatDocId(docId);
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentId: docId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error?.message ?? 'Failed to start conversation');
+      }
+      window.dispatchEvent(new Event('conversations:refresh'));
+      router.push(`/chat/${data.conversation.id}`);
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : 'Failed to start conversation',
+      );
+      setStartingChatDocId(null);
     }
   };
 
@@ -187,6 +204,8 @@ export default function DocumentsPage() {
               documents={documents}
               onRetry={handleRetry}
               onDelete={handleDelete}
+              onChat={handleStartChat}
+              startingChatDocId={startingChatDocId}
             />
           )}
         </div>

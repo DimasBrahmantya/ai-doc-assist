@@ -28,7 +28,9 @@ export const chatService = {
     userId: string,
     input: { conversationId: string; message: string },
   ): Promise<SendChatMessageResult> {
+    const startMs = Date.now();
     const env = getServerEnv();
+    console.info('[chat] 1. start');
 
     enforceRateLimit(
       {
@@ -84,12 +86,15 @@ export const chatService = {
       role: 'user',
       content: input.message,
     });
+    console.info(`[chat] 2. userMsg saved (${Date.now() - startMs}ms)`);
 
+    const ragStartMs = Date.now();
     const ragResult = await runRagPipeline(supabase, {
       documentId: document.id,
       question: input.message,
       history,
     });
+    const ragMs = Date.now() - ragStartMs;
 
     const assistantMessage = await messagesRepository.create(supabase, {
       conversationId: conversation.id,
@@ -97,6 +102,10 @@ export const chatService = {
       content: ragResult.answer,
       sources: ragResult.sources,
     });
+
+    console.info(
+      `[chat] total=${Date.now() - startMs}ms rag=${ragMs}ms sources=${ragResult.sources.length} insufficient=${ragResult.insufficientInfo}`,
+    );
 
     return {
       userMessage,

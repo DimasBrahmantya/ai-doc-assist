@@ -22,8 +22,8 @@ interface IconRailProps {
 
 export function IconRail({
   conversationCount,
-  activeConversationId = 'conv-1',
-  userInitials = 'DU',
+  activeConversationId,
+  userInitials = 'U',
 }: IconRailProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -42,7 +42,7 @@ export function IconRail({
   const navItems = [
     {
       label: 'Chat',
-      href: `/chat/${activeConversationId}`,
+      href: activeConversationId ? `/chat/${activeConversationId}` : '/documents',
       icon: MessageSquare,
       active: isChat,
       badge: conversationCount,

@@ -74,4 +74,17 @@ describe('Gemini retry & backoff', () => {
     expect(fn).toHaveBeenCalledTimes(3);
     expect(sleep).toHaveBeenCalledTimes(2);
   });
+
+  it('stops retrying immediately when AbortSignal is aborted', async () => {
+    const controller = new AbortController();
+    const fn = vi.fn(async () => {
+      controller.abort();
+      throw Object.assign(new Error('503 Unavailable'), { status: 503 });
+    });
+
+    await expect(
+      withRetry(fn, { maxRetries: 3, baseDelayMs: 5000, signal: controller.signal }),
+    ).rejects.toThrow('503 Unavailable');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });

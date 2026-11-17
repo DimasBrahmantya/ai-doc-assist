@@ -348,4 +348,42 @@ export const documentsService = {
 
     return { id: deleted.id };
   },
+
+  async getSignedFileUrl(
+    supabase: SupabaseClient,
+    documentId: string,
+    userId: string,
+  ): Promise<{ url: string; expiresIn: number; fileName: string; totalPages: number | null }> {
+    const doc = await documentsRepository.findByIdForUser(
+      supabase,
+      documentId,
+      userId,
+    );
+    if (!doc) {
+      throw new AppError('NOT_FOUND', 'Document not found', 404);
+    }
+
+    const env = getServerEnv();
+    const admin = createAdminSupabaseClient();
+    const expiresIn = 300;
+    const { data, error } = await admin.storage
+      .from(env.SUPABASE_STORAGE_BUCKET)
+      .createSignedUrl(doc.storage_path, expiresIn);
+
+    if (error || !data?.signedUrl) {
+      console.error('[Signed URL Error]', doc.id, error?.message);
+      throw new AppError(
+        'INTERNAL_ERROR',
+        'Failed to generate document access URL.',
+        500,
+      );
+    }
+
+    return {
+      url: data.signedUrl,
+      expiresIn,
+      fileName: doc.file_name,
+      totalPages: doc.total_pages,
+    };
+  },
 };

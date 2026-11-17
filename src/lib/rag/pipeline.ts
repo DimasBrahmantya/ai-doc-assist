@@ -1,4 +1,5 @@
 import 'server-only';
+import { ThinkingLevel } from '@google/genai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateAnswer, type TokenUsage } from '@/lib/gemini/generate';
 import {
@@ -66,15 +67,23 @@ export async function rewriteFollowUpQuestion(
 
   const prompt = `Conversation history:\n${formattedHistory}\n\nFollow-up question: ${trimmed}`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3_500);
+
   try {
     const result = await generateAnswer(REWRITE_SYSTEM_INSTRUCTION, prompt, {
       temperature: 0,
       maxOutputTokens: 120,
+      maxRetries: 0,
+      abortSignal: controller.signal,
+      thinkingLevel: ThinkingLevel.MINIMAL,
     });
     return result.text.trim() || trimmed;
   } catch {
     // Graceful fallback: retrieval still works with the original question
     return trimmed;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -100,15 +109,18 @@ export async function runRagPipeline(
   const retrieve = deps.retrieve ?? retrieveChunks;
   const generate = deps.generate ?? generateAnswer;
 
+  console.info(`[rag] 1. rewrite=${history.length > 0}`);
   const standaloneQuery =
     history.length > 0
       ? await rewrite(params.question, history)
       : params.question.trim();
 
+  console.info('[rag] 2. retrieve start');
   const chunks = await retrieve(supabase, {
     documentId: params.documentId,
     query: standaloneQuery,
   });
+  console.info(`[rag] 3. retrieve done chunks=${chunks.length}`);
 
   if (chunks.length === 0) {
     return {
@@ -121,7 +133,9 @@ export async function runRagPipeline(
   }
 
   const userPrompt = buildPrompt(chunks, params.question);
+  console.info('[rag] 4. generate start');
   const generated = await generate(RAG_SYSTEM_INSTRUCTION, userPrompt);
+  console.info('[rag] 5. generate done');
   const { answer, sources } = parseCitations(generated.text, chunks);
 
   return {

@@ -4,14 +4,35 @@ export interface RetryOptions {
   maxDelayMs?: number;
   shouldRetry?: (error: unknown) => boolean;
   sleep?: (ms: number) => Promise<void>;
+  signal?: AbortSignal;
 }
 
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_BASE_DELAY_MS = 500;
 const DEFAULT_MAX_DELAY_MS = 10_000;
 
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function createAbortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const err = new Error('Operation aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
+function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(createAbortError(signal));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(createAbortError(signal));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function extractStatusCode(error: unknown): number | null {
@@ -28,13 +49,22 @@ function extractStatusCode(error: unknown): number | null {
  * Retries 429 (rate limit), 5xx, and transient network errors; skips 4xx client errors.
  */
 export function isRetryableError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message.toUpperCase() : String(error).toUpperCase();
+
+  // Do not retry daily/hard quota exhaustion; retrying only wastes time and quota
+  if (
+    message.includes('PERDAY') ||
+    message.includes('PER DAY') ||
+    message.includes('QUOTA EXCEEDED')
+  ) {
+    return false;
+  }
+
   const status = extractStatusCode(error);
   if (status !== null) {
     return status === 429 || (status >= 500 && status < 600);
   }
-
-  const message =
-    error instanceof Error ? error.message.toUpperCase() : String(error).toUpperCase();
 
   if (
     message.includes('429') ||
@@ -65,16 +95,20 @@ export async function withRetry<T>(
   const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
   const maxDelayMs = options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
   const shouldRetry = options.shouldRetry ?? isRetryableError;
-  const sleep = options.sleep ?? defaultSleep;
+  const signal = options.signal;
+  const sleep = options.sleep ?? ((ms: number) => defaultSleep(ms, signal));
 
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (signal?.aborted) {
+      throw createAbortError(signal);
+    }
     try {
       return await fn();
     } catch (error) {
       lastError = error;
-      if (attempt >= maxRetries || !shouldRetry(error)) {
+      if (signal?.aborted || attempt >= maxRetries || !shouldRetry(error)) {
         throw error;
       }
       const expDelay = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);

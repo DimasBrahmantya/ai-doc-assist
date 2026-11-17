@@ -6,7 +6,7 @@ const positiveInt = (fallback: number) =>
 
 export const serverEnvSchema = z.object({
   GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required'),
-  GEMINI_CHAT_MODEL: z.string().min(1).default('gemini-2.5-flash'),
+  GEMINI_CHAT_MODEL: z.string().min(1).default('gemini-3.5-flash-lite'),
   GEMINI_EMBEDDING_MODEL: z.string().min(1).default('gemini-embedding-001'),
   GEMINI_EMBEDDING_DIM: positiveInt(768),
 

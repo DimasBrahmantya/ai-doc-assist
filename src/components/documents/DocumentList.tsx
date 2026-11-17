@@ -19,6 +19,8 @@ interface DocumentListProps {
   documents: DocumentItem[];
   onRetry: (docId: string) => void;
   onDelete: (docId: string) => void;
+  onChat: (docId: string) => void;
+  startingChatDocId?: string | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -28,7 +30,13 @@ function formatBytes(bytes: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-export function DocumentList({ documents, onRetry, onDelete }: DocumentListProps) {
+export function DocumentList({
+  documents,
+  onRetry,
+  onDelete,
+  onChat,
+  startingChatDocId,
+}: DocumentListProps) {
   const [deleteTarget, setDeleteTarget] = React.useState<DocumentItem | null>(null);
 
   if (documents.length === 0) {
@@ -92,12 +100,15 @@ export function DocumentList({ documents, onRetry, onDelete }: DocumentListProps
                       </Button>
                     )}
                     {doc.status === 'ready' && (
-                      <Link href="/chat/conv-1">
-                        <Button variant="primary" size="sm">
-                          <MessageSquare className="h-3.5 w-3.5" />
-                          Chat
-                        </Button>
-                      </Link>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={startingChatDocId === doc.id}
+                        onClick={() => onChat(doc.id)}
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {startingChatDocId === doc.id ? 'Opening...' : 'Chat'}
+                      </Button>
                     )}
                     <Link href={`/documents/${doc.id}`}>
                       <Button variant="ghost" size="icon" title="Details" aria-label="View details">
@@ -157,12 +168,15 @@ export function DocumentList({ documents, onRetry, onDelete }: DocumentListProps
                 </Button>
               )}
               {doc.status === 'ready' && (
-                <Link href="/chat/conv-1">
-                  <Button variant="primary" size="sm">
-                    <MessageSquare className="h-3.5 w-3.5" />
-                    Chat
-                  </Button>
-                </Link>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={startingChatDocId === doc.id}
+                  onClick={() => onChat(doc.id)}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  {startingChatDocId === doc.id ? 'Opening...' : 'Chat'}
+                </Button>
               )}
               <Button
                 variant="ghost"

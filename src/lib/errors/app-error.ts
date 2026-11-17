@@ -9,6 +9,7 @@ export type ErrorCode =
   | 'CONFLICT'
   | 'VALIDATION_ERROR'
   | 'RATE_LIMITED'
+  | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
 export class AppError extends Error {

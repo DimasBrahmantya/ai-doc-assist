@@ -1,4 +1,5 @@
 import 'server-only';
+import { ThinkingLevel } from '@google/genai';
 import { getServerEnv } from '@/lib/env';
 import { AppError } from '@/lib/errors/app-error';
 import { getGeminiClient } from './client';
@@ -18,6 +19,9 @@ export interface GenerateAnswerResult {
 export interface GenerateAnswerOptions {
   temperature?: number;
   maxOutputTokens?: number;
+  maxRetries?: number;
+  abortSignal?: AbortSignal;
+  thinkingLevel?: ThinkingLevel;
 }
 
 function extractStatusCode(error: unknown): number | null {
@@ -81,6 +85,19 @@ export function mapGeminiError(error: unknown): AppError {
     );
   }
 
+  if (
+    status === 503 ||
+    message.includes('503') ||
+    message.includes('UNAVAILABLE') ||
+    message.includes('HIGH DEMAND')
+  ) {
+    return new AppError(
+      'SERVICE_UNAVAILABLE',
+      'AI model is temporarily experiencing high demand. Please try again in a moment.',
+      503,
+    );
+  }
+
   return new AppError(
     'INTERNAL_ERROR',
     'Failed to generate AI response. Please try again.',
@@ -101,18 +118,33 @@ export async function generateAnswer(
   const ai = getGeminiClient();
 
   try {
-    const response = await withRetry(() =>
-      ai.models.generateContent({
-        model: env.GEMINI_CHAT_MODEL,
-        contents: userPrompt,
-        config: {
-          systemInstruction,
-          temperature: options.temperature ?? 0.2,
-          ...(options.maxOutputTokens !== undefined
-            ? { maxOutputTokens: options.maxOutputTokens }
-            : {}),
-        },
-      }),
+    const isGemini25 = env.GEMINI_CHAT_MODEL.includes('2.5');
+    const isGemini3 = env.GEMINI_CHAT_MODEL.includes('3.');
+    const thinkingConfig = isGemini3
+      ? { thinkingLevel: options.thinkingLevel ?? ThinkingLevel.LOW }
+      : isGemini25
+        ? { thinkingBudget: 0 }
+        : undefined;
+
+    const response = await withRetry(
+      () =>
+        ai.models.generateContent({
+          model: env.GEMINI_CHAT_MODEL,
+          contents: userPrompt,
+          config: {
+            systemInstruction,
+            temperature: options.temperature ?? 0.2,
+            ...(thinkingConfig ? { thinkingConfig } : {}),
+            ...(options.maxOutputTokens !== undefined
+              ? { maxOutputTokens: options.maxOutputTokens }
+              : {}),
+            ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+          },
+        }),
+      {
+        maxRetries: options.maxRetries ?? 2,
+        signal: options.abortSignal,
+      },
     );
 
     const text = (response.text ?? '').trim();
@@ -127,7 +159,9 @@ export async function generateAnswer(
 
     return { text, usage };
   } catch (error) {
-    console.error('[Gemini generateContent error]', error);
+    if (!options.abortSignal?.aborted) {
+      console.error('[Gemini generateContent error]', error);
+    }
     throw mapGeminiError(error);
   }
 }

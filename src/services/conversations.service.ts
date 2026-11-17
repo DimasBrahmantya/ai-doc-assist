@@ -1,7 +1,13 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getServerEnv } from '@/lib/env';
 import { AppError } from '@/lib/errors/app-error';
-import type { ConversationRow, MessageRow } from '@/lib/supabase/types';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import type {
+  ConversationRow,
+  DocumentRow,
+  MessageRow,
+} from '@/lib/supabase/types';
 import { conversationsRepository } from '@/repositories/conversations.repository';
 import { documentsRepository } from '@/repositories/documents.repository';
 import { messagesRepository } from '@/repositories/messages.repository';
@@ -18,7 +24,12 @@ export const conversationsService = {
     supabase: SupabaseClient,
     conversationId: string,
     userId: string,
-  ): Promise<{ conversation: ConversationRow; messages: MessageRow[] }> {
+  ): Promise<{
+    conversation: ConversationRow;
+    messages: MessageRow[];
+    document: DocumentRow | null;
+    signedFileUrl: string | null;
+  }> {
     const conversation = await conversationsRepository.findByIdForUser(
       supabase,
       conversationId,
@@ -28,13 +39,30 @@ export const conversationsService = {
       throw new AppError('NOT_FOUND', 'Conversation not found', 404);
     }
 
-    const messages = await messagesRepository.listByConversationForUser(
-      supabase,
-      conversationId,
-      userId,
-    );
+    const [messages, document] = await Promise.all([
+      messagesRepository.listByConversationForUser(
+        supabase,
+        conversationId,
+        userId,
+      ),
+      documentsRepository.findByIdForUser(
+        supabase,
+        conversation.document_id,
+        userId,
+      ),
+    ]);
 
-    return { conversation, messages };
+    let signedFileUrl: string | null = null;
+    if (document?.storage_path) {
+      const env = getServerEnv();
+      const admin = createAdminSupabaseClient();
+      const { data } = await admin.storage
+        .from(env.SUPABASE_STORAGE_BUCKET)
+        .createSignedUrl(document.storage_path, 300);
+      signedFileUrl = data?.signedUrl ?? null;
+    }
+
+    return { conversation, messages, document, signedFileUrl };
   },
 
   async createConversation(
