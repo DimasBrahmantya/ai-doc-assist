@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   FileText,
   HelpCircle,
@@ -11,6 +11,7 @@ import {
   Settings,
   Upload,
 } from 'lucide-react';
+import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { cn } from '@/lib/utils';
 
 interface IconRailProps {
@@ -25,6 +26,14 @@ export function IconRail({
   userInitials = 'DU',
 }: IconRailProps) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    const supabase = createBrowserSupabaseClient();
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  };
 
   const isChat = pathname.startsWith('/chat');
   const isDashboard = pathname.startsWith('/dashboard');
@@ -119,14 +128,15 @@ export function IconRail({
           >
             {userInitials}
           </div>
-          <Link
-            href="/login"
+          <button
+            type="button"
+            onClick={handleLogout}
             title="Logout"
             aria-label="Logout"
-            className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-white/70 hover:bg-white/10 hover:text-white"
+            className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-white/70 hover:bg-white/10 hover:text-white cursor-pointer"
           >
             <LogOut className="h-5 w-5" />
-          </Link>
+          </button>
         </div>
       </aside>
 
@@ -158,13 +168,14 @@ export function IconRail({
             </Link>
           );
         })}
-        <Link
-          href="/login"
-          className="flex flex-col items-center justify-center gap-1 px-3 py-1 text-[11px] text-white/70"
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex flex-col items-center justify-center gap-1 px-3 py-1 text-[11px] text-white/70 cursor-pointer"
         >
           <LogOut className="h-5 w-5" />
           <span>Logout</span>
-        </Link>
+        </button>
       </nav>
     </>
   );

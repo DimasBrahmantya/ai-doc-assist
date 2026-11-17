@@ -5,16 +5,61 @@ import { useRouter } from 'next/navigation';
 import { FileText, Lock, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = React.useState<'signin' | 'signup'>('signin');
-  const [email, setEmail] = React.useState('dimas@example.com');
-  const [password, setPassword] = React.useState('••••••••••••');
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    router.push('/dashboard');
+    setLoading(true);
+    setErrorMessage(null);
+    setInfoMessage(null);
+
+    try {
+      const supabase = createBrowserSupabaseClient();
+
+      if (mode === 'signin') {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) {
+          setErrorMessage(error.message);
+          return;
+        }
+        router.push('/dashboard');
+        router.refresh();
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (error) {
+          setErrorMessage(error.message);
+          return;
+        }
+        if (data.session) {
+          router.push('/dashboard');
+          router.refresh();
+        } else {
+          setInfoMessage(
+            'Account created. Please check your email to confirm your address before signing in.',
+          );
+          setMode('signin');
+        }
+      }
+    } catch {
+      setErrorMessage('Authentication failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -71,8 +116,36 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <Button type="submit" variant="primary" size="lg" className="w-full">
-            {mode === 'signin' ? 'Sign In' : 'Create Account'}
+          {errorMessage && (
+            <div
+              role="alert"
+              className="rounded-[var(--radius-md)] border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger"
+            >
+              {errorMessage}
+            </div>
+          )}
+
+          {infoMessage && (
+            <div
+              role="status"
+              className="rounded-[var(--radius-md)] border border-border bg-surface px-3 py-2 text-xs text-text"
+            >
+              {infoMessage}
+            </div>
+          )}
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            className="w-full"
+            disabled={loading}
+          >
+            {loading
+              ? 'Please wait...'
+              : mode === 'signin'
+                ? 'Sign In'
+                : 'Create Account'}
           </Button>
         </form>
 

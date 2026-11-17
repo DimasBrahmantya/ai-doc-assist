@@ -4,36 +4,150 @@ import * as React from 'react';
 import { UploadDropzone } from '@/components/documents/UploadDropzone';
 import { DocumentList } from '@/components/documents/DocumentList';
 import { AppShell } from '@/components/layout/AppShell';
-import { MOCK_DOCUMENTS } from '@/mocks';
+import { LoadingState } from '@/components/ui/LoadingState';
+import { ErrorState } from '@/components/ui/ErrorState';
+import type { DocumentRow } from '@/lib/supabase/types';
 import type { DocumentItem } from '@/types';
 
-export default function DocumentsPage() {
-  const [documents, setDocuments] = React.useState<DocumentItem[]>(MOCK_DOCUMENTS);
+const POLL_INTERVAL_MS = 2500;
 
-  const handleFilesSelected = (files: File[]) => {
-    const newDocs: DocumentItem[] = files.map((file, idx) => ({
-      id: `doc-upload-${Date.now()}-${idx}`,
-      fileName: file.name,
-      fileSizeBytes: file.size,
-      totalPages: null,
-      status: 'uploaded',
-      createdAt: new Date().toISOString(),
-    }));
-    setDocuments((prev) => [...newDocs, ...prev]);
+function mapRowToItem(row: DocumentRow): DocumentItem {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    fileSizeBytes: row.file_size,
+    totalPages: row.total_pages,
+    status: row.status,
+    createdAt: row.created_at,
+    errorMessage: row.error_message ?? undefined,
+  };
+}
+
+export default function DocumentsPage() {
+  const [documents, setDocuments] = React.useState<DocumentItem[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  const fetchDocuments = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/documents', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error?.message ?? 'Failed to load documents');
+      }
+      const rows = (data.documents ?? []) as DocumentRow[];
+      setDocuments(rows.map(mapRowToItem));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(
+        err instanceof Error ? err.message : 'Failed to load documents',
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const hasPendingDocs = documents.some(
+    (d) => d.status === 'uploaded' || d.status === 'processing',
+  );
+
+  React.useEffect(() => {
+    if (!hasPendingDocs) return;
+    const timer = setInterval(() => {
+      fetchDocuments();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [hasPendingDocs, fetchDocuments]);
+
+  const triggerProcess = React.useCallback(
+    async (docId: string) => {
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === docId
+            ? { ...d, status: 'processing', errorMessage: undefined }
+            : d,
+        ),
+      );
+
+      try {
+        const res = await fetch(`/api/documents/${docId}/process`, {
+          method: 'POST',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error?.message ?? 'Failed to process document');
+        }
+        if (data.document) {
+          const updated = mapRowToItem(data.document as DocumentRow);
+          setDocuments((prev) =>
+            prev.map((d) => (d.id === docId ? updated : d)),
+          );
+        } else {
+          await fetchDocuments();
+        }
+      } catch (err) {
+        setActionError(
+          err instanceof Error ? err.message : 'Failed to process document',
+        );
+        await fetchDocuments();
+      }
+    },
+    [fetchDocuments],
+  );
+
+  const handleFilesSelected = async (files: File[]) => {
+    setActionError(null);
+
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch('/api/documents/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error?.message ?? `Failed to upload ${file.name}`);
+        }
+        const created = mapRowToItem(data.document as DocumentRow);
+        setDocuments((prev) => [created, ...prev]);
+        void triggerProcess(created.id);
+      } catch (err) {
+        setActionError(
+          err instanceof Error ? err.message : `Failed to upload ${file.name}`,
+        );
+      }
+    }
   };
 
   const handleRetry = (docId: string) => {
-    setDocuments((prev) =>
-      prev.map((d) =>
-        d.id === docId
-          ? { ...d, status: 'processing', errorMessage: undefined }
-          : d,
-      ),
-    );
+    setActionError(null);
+    void triggerProcess(docId);
   };
 
-  const handleDelete = (docId: string) => {
-    setDocuments((prev) => prev.filter((d) => d.id !== docId));
+  const handleDelete = async (docId: string) => {
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/documents/${docId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error?.message ?? 'Failed to delete document');
+      }
+      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : 'Failed to delete document',
+      );
+    }
   };
 
   return (
@@ -51,11 +165,30 @@ export default function DocumentsPage() {
 
           <UploadDropzone onFilesSelected={handleFilesSelected} />
 
-          <DocumentList
-            documents={documents}
-            onRetry={handleRetry}
-            onDelete={handleDelete}
-          />
+          {actionError && (
+            <div
+              role="alert"
+              className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              {actionError}
+            </div>
+          )}
+
+          {isLoading ? (
+            <LoadingState label="Loading your documents..." />
+          ) : loadError ? (
+            <ErrorState
+              title="Could not load documents"
+              message={loadError}
+              onRetry={fetchDocuments}
+            />
+          ) : (
+            <DocumentList
+              documents={documents}
+              onRetry={handleRetry}
+              onDelete={handleDelete}
+            />
+          )}
         </div>
       </div>
     </AppShell>
